@@ -2,27 +2,51 @@
 // Handler
 // --------------------------------------------------
 
-use crate::extractor::JsonRpc;
-use axum::{
-    extract::{
-        rejection::JsonRejection,
-        FromRequest,
-        Request,
-    },
-    http::StatusCode,
-    routing::post,
-    Json, Router,
-};
-use serde_json::{json, Map, Value};
+pub mod account;
+
+use crate::{extractor::{JsonRpc, RpcParams}, handlers};
+use axum::Json;
+use serde_json::{json, Value};
+
+
+
 pub async fn rpc(JsonRpc(payload): JsonRpc) -> Json<Value> {
    match payload.method.as_str(){
     "getAccountInfo" => {
+        let params = payload.params;
+        let id = payload.id;
+
+        if let Some(params) = params{
+            if let RpcParams::Array(arr) = params{
+                if let Some(first) = arr.first(){
+                    let address = first.as_str().unwrap_or_default().to_string();
+                    return match handlers::account::get_account_info(address).await{
+                        Ok(info) => Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": info,
+                        })),
+                        Err(e) => Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32603,
+                                "message": e
+                            }
+                        }))
+                    };
+                }
+            }
+        }
         Json(json!({
             "jsonrpc": "2.0",
-            "result": "",
-            "id": payload.id
-        
+            "id": id,
+            "error": {
+                "code": -32602,
+                "message": "Invalid params"
+            }
         }))
+
     }
     "getTokenBalances" =>{
         Json(json!({
@@ -83,3 +107,6 @@ pub async fn rpc(JsonRpc(payload): JsonRpc) -> Json<Value> {
     }
    }
 }
+
+
+
