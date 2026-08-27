@@ -3,14 +3,15 @@
 // --------------------------------------------------
 
 pub mod account;
+mod transaction;
 
-use crate::{extractor::{JsonRpc, RpcParams}, handlers};
-use axum::Json;
+use crate::{AppState, extractor::{JsonRpc, RpcParams}, handlers};
+use axum::{Json, extract::State};
 use serde_json::{json, Value};
 
 
 
-pub async fn rpc(JsonRpc(payload): JsonRpc) -> Json<Value> {
+pub async fn rpc(State(state): State<AppState>, JsonRpc(payload): JsonRpc) -> Json<Value> {
    match payload.method.as_str(){
     "getAccountInfo" => {
         let params = payload.params;
@@ -65,19 +66,31 @@ pub async fn rpc(JsonRpc(payload): JsonRpc) -> Json<Value> {
         }))
     }
     "getTransactionStatus" =>{
+        let id = payload.id;
+        let params = payload.params;
+
+        if let Some(params) = params{
+            if let RpcParams::Array(arr) = params{
+                if let Some(first) = arr.first(){
+                    if let Some(tx_hash) = first.as_str(){
+                        return handlers::transaction::get_transaction_status(State((state)), tx_hash.to_string()).await;
+                    }
+                }
+                
+            }
+        }
         Json(json!({
             "jsonrpc": "2.0",
-            "result": "",
-            "id": payload.id
+            "error": {
+                "code": -32602,
+                "message": "Invalid params"
+            },
+            "id": id
         
         }))
     }
     "sendTransaction"=>{
-        Json(json!({
-            "jsonrpc": "2.0",
-            "result": "",
-            "id": payload.id
-        }))
+        handlers::transaction::send_transaction(State(state)).await
     }
     "replaceTransaction"=>{
         Json(json!({
