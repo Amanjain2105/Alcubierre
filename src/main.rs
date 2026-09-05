@@ -2,12 +2,12 @@ pub mod extractor;
 mod types;
 mod handlers;
 
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{collections::HashMap, sync::{Arc, Mutex}, task::Poll::Pending};
 
 use axum::{routing::post, Router};
 use handlers::rpc;
 
-use crate::types::transaction::TransactionStatus;
+use crate::types::transaction::TransactionStatus::{self, Received};
 
 #[derive(Clone)]
 struct AppState{
@@ -27,7 +27,31 @@ async fn main() {
         transaction_status: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    let tx_store = Arc::clone(&state.transaction_status);
 
+    tokio::spawn(async move{
+        loop{
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+            let mut store = tx_store.lock().unwrap(); 
+            for (_tx_hash, status) in store.iter_mut(){
+                 match status {
+                    TransactionStatus::Received => {
+                        *status = TransactionStatus::Pending { queue_position: (1) }
+                    }
+                    TransactionStatus::Pending { queue_position} =>{
+                        *status = TransactionStatus::Included { block_number: (1) }
+                    }
+                    TransactionStatus::Included { block_number }=>{
+                        *status = TransactionStatus::Finalized { block_number: 1, gas_used: 34 }
+                    }
+                    TransactionStatus::Finalized {..}=>{}
+
+                    TransactionStatus::Failed {..}=>{}
+                 }
+            }
+        }
+    });
 
     let app = 
     Router::new().route("/rpc", post(rpc)).
@@ -45,10 +69,4 @@ async fn main() {
 }
 
 
-/*getAccountInfo
-getTokenBalances
-getSupportedTokens
-estimateGas
-sendTransaction
-getTransactionStatus
-replaceTransaction */
+

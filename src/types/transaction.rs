@@ -1,6 +1,7 @@
-use serde::Serialize;
+use serde::{Serialize};
 
-#[derive(Serialize)]
+#[derive(Serialize, PartialEq)]
+#[serde(tag ="status")]
 pub enum TransactionStatus {
     Received,
     Pending { queue_position: u64 },
