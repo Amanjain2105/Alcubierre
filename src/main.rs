@@ -1,6 +1,7 @@
 pub mod extractor;
 mod types;
 mod handlers;
+use sqlx::PgPool;
 
 use std::{collections::HashMap, sync::{Arc, Mutex}, task::Poll::Pending};
 
@@ -11,7 +12,7 @@ use crate::types::transaction::TransactionStatus::{self, Received};
 
 #[derive(Clone)]
 struct AppState{
-    transaction_status: Arc<Mutex<HashMap<String, TransactionStatus>>>
+    db:PgPool,
 }
 
 
@@ -22,40 +23,54 @@ struct AppState{
 
 #[tokio::main]
 async fn main() {
+    let database_url = "postgres://amanjain@localhost/alcubierre";
+    
+    let pool = PgPool::connect(database_url)
+        .await
+        .expect("Failed to connect to database");
 
-    let state = AppState{
-        transaction_status: Arc::new(Mutex::new(HashMap::new())),
-    };
+    let state = AppState { db: pool.clone() };
 
-    let tx_store = Arc::clone(&state.transaction_status);
-
-    tokio::spawn(async move{
-        loop{
+    tokio::spawn(async move {
+        loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-            let mut store = tx_store.lock().unwrap(); 
-            for (_tx_hash, status) in store.iter_mut(){
-                 match status {
-                    TransactionStatus::Received => {
-                        *status = TransactionStatus::Pending { queue_position: (1) }
-                    }
-                    TransactionStatus::Pending { queue_position} =>{
-                        *status = TransactionStatus::Included { block_number: (1) }
-                    }
-                    TransactionStatus::Included { block_number }=>{
-                        *status = TransactionStatus::Finalized { block_number: 1, gas_used: 34 }
-                    }
-                    TransactionStatus::Finalized {..}=>{}
+            sqlx::query(
+                "UPDATE transactions SET status = $1 WHERE status = $2"
+            )
+            .bind("Pending")
+            .bind("Received")
+            .execute(&pool)
+            .await
+            .ok();
 
-                    TransactionStatus::Failed {..}=>{}
-                 }
-            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            sqlx::query(
+                "UPDATE transactions SET status = $1, block_number = $2 WHERE status = $3"
+            )
+            .bind("Included")
+            .bind(1_i64)
+            .bind("Pending")
+            .execute(&pool)
+            .await
+            .ok();
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            sqlx::query(
+                "UPDATE transactions SET status = $1, gas_used = $2 WHERE status = $3"
+            )
+            .bind("Finalized")
+            .bind(21000_i64)
+            .bind("Included")
+            .execute(&pool)
+            .await
+            .ok();
         }
     });
 
-    let app = 
-    Router::new().route("/rpc", post(rpc)).
-    with_state(state);
+    let app = Router::new()
+        .route("/rpc", post(rpc))
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
