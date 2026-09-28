@@ -1,11 +1,24 @@
-use crate::types::account::*;
+use crate::{AppState, types::account::*};
+use axum::extract::State;
+use sqlx::Row;
 
 
-pub async fn get_account_info(address: String) -> Result<AccountInfo, String>{
-    Ok(AccountInfo{
-        balance: "1000000".to_string(),
-        nonce: 0,
-    })
+pub async fn get_account_info(State(state): State<AppState>, address: String) -> Result<AccountInfo, String>{
+
+    let row = sqlx::query("SELECT balance, nonce FROM accounts WHERE address = $1")
+    .bind(&address)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match row {
+        Some(row) => Ok(AccountInfo{
+            balance: row.get("balance"),
+            nonce: row.get("nonce"),
+        }),
+        None => Err("Account Not Found".to_string()),
+    }
+    
 }
 
 pub async fn get_supported_tokens(chain_id: String) -> Result<Vec<Token>, String>{

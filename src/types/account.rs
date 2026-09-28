@@ -3,7 +3,7 @@ use serde::{Deserialize,Serialize};
 #[derive(Serialize,Debug)]
 pub struct AccountInfo{
     pub balance: String,
-    pub nonce: u64,
+    pub nonce: i64,
 }
 #[derive(Debug,Serialize)]
 pub struct TokenBalance{

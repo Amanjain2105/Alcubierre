@@ -21,7 +21,7 @@ pub async fn rpc(State(state): State<AppState>, JsonRpc(payload): JsonRpc) -> Js
             if let RpcParams::Array(arr) = params{
                 if let Some(first) = arr.first(){
                     let address = first.as_str().unwrap_or_default().to_string();
-                    return match handlers::account::get_account_info(address).await{
+                    return match handlers::account::get_account_info(State(state.clone()), address).await{
                         Ok(info) => Json(json!({
                             "jsonrpc": "2.0",
                             "id": id,
