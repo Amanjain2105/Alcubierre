@@ -98,18 +98,29 @@ async fn ingest_block(
         .bind(&parent_hash)
         .execute(&mut *tx)
         .await?; 
-
+    //g
     sqlx::query(
-        "UPDATE transactions SET status = 'Included',
-         block_number = $1, block_hash = $2 WHERE status = 'Pending'"
+        "WITH moved AS
+        (UPDATE transactions SET status = 'Included',
+        block_number = $1, block_hash = $2 WHERE status = 'Pending'
+        Returning tx_hash)
+        INSERT INTO transaction_events(tx_hash, status, block_number, block_hash)
+        SELECT tx_hash, 'Included', $1, $2 FROM moved
+        "
         )
     .bind(new_number)
     .bind(&new_hash)
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("UPDATE transactions SET status = 'Finalized',
-    gas_used = 21000 WHERE status = 'Included' AND block_number <= $1")
+        /* Use CTE for these queries */
+    sqlx::query(
+        "WITH moved AS
+        (UPDATE transactions SET status = 'Finalized',
+        gas_used = 21000 WHERE status = 'Included' AND block_number <= $1
+        RETURNING tx_hash, block_number, block_hash)
+        INSERT INTO transaction_events(tx_hash, status, block_number, block_hash)
+        SELECT tx_hash, 'Finalized', block_number, block_hash FROM moved")
     .bind(new_number - FINALITY_DEPTH)
     .execute(&mut *tx)
     .await?;
@@ -140,14 +151,17 @@ async fn main() {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-           if let Err(e) = sqlx::query("UPDATE transactions SET status = $1 WHERE status =$2")
-            .bind("Pending")
-            .bind("Received")
+           if let Err(e) = sqlx::query(
+            "WITH moved AS (
+            UPDATE transactions SET status = 'Pending'
+            WHERE status = 'Received'
+            RETURNING tx_hash)
+            INSERT INTO transaction_events(tx_hash, status)
+            SELECT tx_hash, 'Pending' FROM moved")
             .execute(&pool_task1)
             .await{
-                eprintln!("recieved -> Pending falied {e}")
-            }
-           
+                eprintln!("received->pending failed: {e}");
+            }  
         }
     });
 

@@ -3,36 +3,45 @@ use std::sync::{Arc, Mutex};
 use axum::{Json, extract::State, http::status};
 use serde_json::{Value, json};
 use uuid::Uuid;
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 
 use crate::{AppState, types::transaction::{GasEstimate, TransactionStatus::{self, Received}}};
+
+pub async fn insert_received(pool: &PgPool, tx_hash: &str) -> Result<(), sqlx::Error>{
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO transactions(tx_hash, status) VALUES ($1, 'Received')")
+        .bind(tx_hash)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("INSERT INTO transaction_events(tx_hash, status) VALUES ($1, 'Received')")
+        .bind(tx_hash)
+        .execute(&mut *tx) 
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(())
+}
 
 pub async fn send_transaction(State(state): State<AppState>) -> Json<Value>{
 
     let tx_hash = Uuid::new_v4().to_string();
 
-        let result = sqlx::query(
-            "INSERT INTO transactions (tx_hash, status) VALUES ($1, $2)"
-        )
-            .bind(&tx_hash)
-            .bind("Received")
-            .execute(&state.db)
-            .await;
-
-        match result {
-            Ok(_)=>{
-                Json(json!({
+        match insert_received(&state.db, &tx_hash).await {
+            Ok(())=>
+                Json(json!({"jsonrpc": "2.0",
                     "tx_hash": tx_hash
-                }))
-            }
-            Err(e)=>{
+                })),
+            
+            Err(e)=>
                 Json(json!({
                     "error": {
-                        "code": -32602,
-                        "message": "Transaction Not Found"
+                        "code": -32603,
+                        "message": e.to_string()
                     }
                 }))
-            }
+            
         }
 }
 
@@ -83,16 +92,9 @@ pub async fn replace_transaction(
     match exists {
         Ok(Some(_)) => {
             let new_hash = Uuid::new_v4().to_string();
-            let insert = sqlx::query(
-                "INSERT INTO transactions (tx_hash, status) VALUES ($1, $2)"
-            )
-            .bind(&new_hash)
-            .bind("Received")
-            .execute(&state.db)
-            .await;
 
-            match insert {
-                Ok(_) => Json(json!({
+            match insert_received(&state.db, &new_hash).await {
+                Ok(()) => Json(json!({
                     "jsonrpc": "2.0",
                     "tx_hash": new_hash
                 })),
